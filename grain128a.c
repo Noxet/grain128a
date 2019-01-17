@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include "grain128a.h"
+
+#define STREAM_BYTES 40
+
 /*
  * Define "PRE" to print the pre-output instead of keystream.
  * Define "INIT" to also print the bits during the initialization part.
@@ -10,15 +14,10 @@
 uint8_t init_rounds = 0;
 uint8_t auth_mode = 0;
 
-typedef struct {
-	uint8_t lfsr[128];
-	uint8_t nfsr[128];
-	uint8_t auth_acc[32];
-	uint8_t auth_sr[32];
-} grain_state;
 
 void init_grain(grain_state *grain, uint8_t *key, uint8_t *iv)
 {
+	// TODO: do not hardcode these values
 	grain->lfsr[0] = 0;
 	for (int i = 1; i < 32; i++) {
 		grain->lfsr[i] = 1;
@@ -139,77 +138,77 @@ void print_preout(grain_state *grain)
 	printf("\n");
 }
 
+void print_stream(uint8_t *stream, uint8_t byte_size)
+{
+	for (int i = 0; i < byte_size; i++) {
+		uint8_t yi = 0;
+		for (int j = 0; j < 8; j++) {
+			yi = (yi << 1) ^ stream[i * 8 + j];
+		}
+		printf("%02x", yi);
+	}
+}
+
 void print_keystream(grain_state *grain)
 {
-#ifdef AUTH
-	/* inititalize the accumulator and shift reg. using the first 64 bits */
-	for (int i = 0; i < 32; i++) {
-		grain->auth_acc[i] = next_z(grain);
-	}
-
-	for (int i = 0; i < 32; i++) {
-		grain->auth_sr[i] = next_z(grain);
-	}
-
-	printf("accumulator: ");
-	for (int i = 0; i < 4; i++) {
-		uint8_t ai = 0;
-		for (int j = 0; j < 8; j++) {
-			ai = (ai << 1) ^ grain->auth_acc[i * 8 + j];
+	if (auth_mode) {
+		/* inititalize the accumulator and shift reg. using the first 64 bits */
+		for (int i = 0; i < 32; i++) {
+			grain->auth_acc[i] = next_z(grain);
 		}
-		printf("%02x", ai);
-	}
-	printf("\n");
-	
-	printf("shift register: ");
-	for (int i = 0; i < 4; i++) {
-		uint8_t ri = 0;
-		for (int j = 0; j < 8; j++) {
-			ri = (ri << 1) ^ grain->auth_sr[i * 8 + j];
-		}
-		printf("%02x", ri);
-	}
-	printf("\n");
 
-	printf("keystream: ");
-	for (int i = 0; i < 40; i++) {
-		/* y = z_{2i} */
-		uint8_t yi = 0;
-		for (int j = 0; j < 16; j++) {
-			/* skip every second */
-			uint8_t z_next = next_z(grain);
-			if (j % 2 == 1) {
-				yi = (yi << 1) ^ z_next;
+		for (int i = 0; i < 32; i++) {
+			grain->auth_sr[i] = next_z(grain);
+		}
+
+		printf("accumulator: ");
+		print_stream(grain->auth_acc, 4);
+		printf("\n");
+
+		printf("shift register: ");
+		print_stream(grain->auth_sr, 4);
+		printf("\n");
+
+		uint8_t ks[STREAM_BYTES * 8];	// keystream array
+		uint16_t ks_cnt = 0;
+		uint8_t ms[STREAM_BYTES * 8];	// macstream array
+		uint16_t ms_cnt = 0;
+
+		/* generate keystream */
+		for (int i = 0; i < STREAM_BYTES; i++) {
+			/* y = z_{2i} */
+			uint8_t yi = 0;
+			for (int j = 0; j < 16; j++) {
+				/* skip every second */
+				uint8_t z_next = next_z(grain);
+				if (j % 2 == 0) {
+					ks[ks_cnt++] = z_next;
+				} else {
+					ms[ms_cnt++] = z_next;
+				}
 			}
 		}
-		printf("%02x", yi);
-	}
-	printf("\n");
+		printf("keystream: ");
+		print_stream(ks, STREAM_BYTES);
+		printf("\n");
 
-	/*
-	for (int i = 0; i < 40; i++) {
-		uint8_t yi = 0;
-		for (int j = 0; j < 8; j++) {
-			yi = (yi << 1) ^ next_z(grain);
-		}
-		printf("%02x", yi);
-	}
-	printf("\n");
-	*/
+		printf("macstream: ");
+		print_stream(ms, STREAM_BYTES);
+		printf("\n");
+	} else {
+		uint8_t ks[STREAM_BYTES * 8];
 
-#else
-	printf("keystream: ");
-	for (int i = 0; i < 40; i++) {
-		uint8_t yi = 0;
-		for (int j = 0; j < 8; j++) {
-			yi = (yi << 1) ^ next_z(grain);
+		/* generate keystream */
+		for (int i = 0; i < STREAM_BYTES * 8; i++) {
+			ks[i] = next_z(grain);
 		}
-		printf("%02x", yi);
+
+		printf("keystream: ");
+		print_stream(ks, STREAM_BYTES);
+		printf("\n");
 	}
-	printf("\n");
-	
-#endif
 }
+
 
 int main()
 {

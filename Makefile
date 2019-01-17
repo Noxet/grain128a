@@ -10,9 +10,6 @@ init: grain128a
 pre: CFLAGS += -DPRE
 pre: grain128a
 
-auth: CFLAGS += -DAUTH
-auth: grain128a
-
 grain128a: grain128a.c
 
 clean:
