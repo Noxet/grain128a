@@ -1,9 +1,8 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "grain128a.h"
-
-#define STREAM_BYTES 40
 
 /*
  * Define "PRE" to print the pre-output instead of keystream.
@@ -37,6 +36,17 @@ void init_grain(grain_state *grain, uint8_t *key, uint8_t *iv)
 		grain->auth_acc[i] = 0;
 		grain->auth_sr[i] = 0;
 	}
+}
+
+void init_data(grain_data *data, uint8_t *msg, uint32_t msg_len)
+{
+	// always pad data with a 1
+	data->message = (uint8_t *) malloc(msg_len + 1);
+	for (uint32_t i = 0; i < msg_len; i++) {
+		data->message[i] = msg[i];
+	}
+
+	data->message[msg_len] = 1;
 }
 
 uint8_t next_lfsr_fb(grain_state *grain)
@@ -82,6 +92,21 @@ uint8_t shift(uint8_t fsr[128], uint8_t fb)
 	return out;
 }
 
+void auth_shift(uint8_t sr[32], uint8_t fb)
+{
+	for (int i = 0; i < 31; i++) {
+		sr[i] = sr[i+1];
+	}
+	sr[31] = fb;
+}
+
+void accumulate(grain_state *grain)
+{
+	for (int i = 0; i < 32; i++) {
+		grain->auth_acc[i] ^= grain->auth_sr[i];
+	}
+}
+
 uint8_t next_z(grain_state *grain)
 {
 	uint8_t lfsr_fb = next_lfsr_fb(grain);
@@ -125,19 +150,6 @@ void print_state(grain_state *grain)
 	printf("\n");
 }
 
-void print_preout(grain_state *grain)
-{
-	printf("pre-out: ");
-	for (int i = 0; i < 40; i++) {
-		uint8_t yi = 0;
-		for (int j = 0; j < 8; j++) {
-			yi = (yi << 1) ^ next_z(grain);
-		}
-		printf("%02x", yi);
-	}
-	printf("\n");
-}
-
 void print_stream(uint8_t *stream, uint8_t byte_size)
 {
 	for (int i = 0; i < byte_size; i++) {
@@ -147,9 +159,10 @@ void print_stream(uint8_t *stream, uint8_t byte_size)
 		}
 		printf("%02x", yi);
 	}
+	printf("\n");
 }
 
-void print_keystream(grain_state *grain)
+void generate_keystream(grain_state *grain, grain_data *data)
 {
 	if (auth_mode) {
 		/* inititalize the accumulator and shift reg. using the first 64 bits */
@@ -163,38 +176,48 @@ void print_keystream(grain_state *grain)
 
 		printf("accumulator: ");
 		print_stream(grain->auth_acc, 4);
-		printf("\n");
 
 		printf("shift register: ");
 		print_stream(grain->auth_sr, 4);
-		printf("\n");
 
-		uint8_t ks[STREAM_BYTES * 8];	// keystream array
+		uint8_t ks[STREAM_BYTES * 8];		// keystream array
 		uint16_t ks_cnt = 0;
-		uint8_t ms[STREAM_BYTES * 8];	// macstream array
+		uint8_t ms[STREAM_BYTES * 8];		// macstream array
 		uint16_t ms_cnt = 0;
+		uint8_t pre[2 * STREAM_BYTES * 8];	// pre-output
+		uint16_t pre_cnt = 0;
 
 		/* generate keystream */
 		for (int i = 0; i < STREAM_BYTES; i++) {
-			/* y = z_{2i} */
-			uint8_t yi = 0;
+			/* every second bit is used for keystream, the others for MAC */
 			for (int j = 0; j < 16; j++) {
-				/* skip every second */
 				uint8_t z_next = next_z(grain);
 				if (j % 2 == 0) {
-					ks[ks_cnt++] = z_next;
+					ks[ks_cnt] = z_next;
+					ks_cnt++;
 				} else {
-					ms[ms_cnt++] = z_next;
+					ms[ms_cnt] = z_next;
+					if (data->message[ms_cnt] == 1) {
+						accumulate(grain);
+					}
+					auth_shift(grain->auth_sr, z_next);
+					ms_cnt++;
 				}
+				pre[pre_cnt++] = z_next;	// pre-output includes all bits
 			}
 		}
+
+		printf("pre-output: ");
+		print_stream(pre, 2 * STREAM_BYTES);
+
 		printf("keystream: ");
 		print_stream(ks, STREAM_BYTES);
-		printf("\n");
 
 		printf("macstream: ");
 		print_stream(ms, STREAM_BYTES);
-		printf("\n");
+
+		printf("accumulator: ");
+		print_stream(grain->auth_acc, 4);
 	} else {
 		uint8_t ks[STREAM_BYTES * 8];
 
@@ -213,20 +236,23 @@ void print_keystream(grain_state *grain)
 int main()
 {
 	grain_state grain;
+	grain_data data;
+
+	uint8_t msg[0];
 
 	init_grain(&grain, NULL, NULL);
+	init_data(&data, msg, sizeof(msg));
 	
 	/* initialize grain and skip output */
 	init_rounds = 1;
-	int nz;
 #ifdef INIT
 	printf("init bits: ");
 #endif
 	for (int i = 0; i < 256; i++) {
-		nz = next_z(&grain);
-		/* here, we can print the output during the initialization */
 #ifdef INIT
-		printf("%d", nz);
+		printf("%d", next_z(&grain));
+#else
+		next_z(&grain);
 #endif
 	}
 #ifdef INIT
@@ -234,10 +260,5 @@ int main()
 #endif
 	init_rounds = 0;
 
-#ifdef PRE
-	print_preout(&grain);
-#else
-	print_keystream(&grain);
-#endif
-
+	generate_keystream(&grain, &data);
 }
