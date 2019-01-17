@@ -3,6 +3,8 @@ naive.c
 naive
 grain128a
 
+.vscode
+
 # Prerequisites
 *.d
 
