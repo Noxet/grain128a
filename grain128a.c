@@ -17,16 +17,17 @@ uint8_t auth_mode = 0;
 void init_grain(grain_state *grain, uint8_t *key, uint8_t *iv)
 {
 	// TODO: do not hardcode these values
-	grain->lfsr[0] = 0;
-	for (int i = 1; i < 32; i++) {
+	grain->lfsr[0] = 1;
+	for (int i = 1; i < 96; i++) {
+		grain->lfsr[i] = 0;
+	}
+
+	for (int i = 96; i < 127; i++) {
 		grain->lfsr[i] = 1;
 	}
 
-	for (int i = 32; i < 127; i++) {
-		grain->lfsr[i] = 0;
-	}
-	grain->lfsr[127] = 1;
-	if (grain->lfsr[127] == 1) auth_mode = 1;
+	grain->lfsr[127] = 0;
+	if (grain->lfsr[0] == 1) auth_mode = 1;
 
 	for (int i = 0; i < 128; i++) {
 		grain->nfsr[i] = 0;
@@ -52,30 +53,30 @@ void init_data(grain_data *data, uint8_t *msg, uint32_t msg_len)
 uint8_t next_lfsr_fb(grain_state *grain)
 {
  	/* f(x) = 1 + x^32 + x^47 + x^58 + x^90 + x^121 + x^128 */
-	return grain->lfsr[31] ^ grain->lfsr[46] ^ grain->lfsr[57] ^ grain->lfsr[89] ^ grain->lfsr[120] ^ grain->lfsr[127];
+	return grain->lfsr[96] ^ grain->lfsr[81] ^ grain->lfsr[70] ^ grain->lfsr[38] ^ grain->lfsr[7] ^ grain->lfsr[0];
 }
 
 uint8_t next_nfsr_fb(grain_state *grain)
 {
-	return grain->nfsr[31] ^ grain->nfsr[36] ^ grain->nfsr[71] ^ grain->nfsr[101] ^ grain->nfsr[127] ^ (grain->nfsr[43] & grain->nfsr[59]) ^
-			(grain->nfsr[60] & grain->nfsr[124]) ^ (grain->nfsr[62] & grain->nfsr[66]) ^ (grain->nfsr[68] & grain->nfsr[100]) ^
-			(grain->nfsr[79] & grain->nfsr[87]) ^ (grain->nfsr[109] & grain->nfsr[110]) ^ (grain->nfsr[114] & grain->nfsr[116]) ^
-			(grain->nfsr[45] & grain->nfsr[49] & grain->nfsr[57]) ^ (grain->nfsr[102] & grain->nfsr[103] & grain->nfsr[105]) ^
-			(grain->nfsr[32] & grain->nfsr[34] & grain->nfsr[35] & grain->nfsr[39]);
+	return grain->nfsr[96] ^ grain->nfsr[91] ^ grain->nfsr[56] ^ grain->nfsr[26] ^ grain->nfsr[0] ^ (grain->nfsr[84] & grain->nfsr[68]) ^
+			(grain->nfsr[67] & grain->nfsr[3]) ^ (grain->nfsr[65] & grain->nfsr[61]) ^ (grain->nfsr[59] & grain->nfsr[27]) ^
+			(grain->nfsr[48] & grain->nfsr[40]) ^ (grain->nfsr[18] & grain->nfsr[17]) ^ (grain->nfsr[13] & grain->nfsr[11]) ^
+			(grain->nfsr[82] & grain->nfsr[78] & grain->nfsr[70]) ^ (grain->nfsr[25] & grain->nfsr[24] & grain->nfsr[22]) ^
+			(grain->nfsr[95] & grain->nfsr[93] & grain->nfsr[92] & grain->nfsr[88]);
 }
 
 uint8_t next_h(grain_state *grain)
 {
 	// h(x) = x0x1 + x2x3 + x4x5 + x6x7 + x0x4x8
-	#define x0 grain->nfsr[128-12-1]	// bi+12
-	#define x1 grain->lfsr[128-8-1]		// si+8
-	#define x2 grain->lfsr[128-13-1]	// si+13
-	#define x3 grain->lfsr[128-20-1]	// si+20
-	#define x4 grain->nfsr[128-95-1]	// bi+95
-	#define x5 grain->lfsr[128-42-1]	// si+42
-	#define x6 grain->lfsr[128-60-1]	// si+60
-	#define x7 grain->lfsr[128-79-1]	// si+79
-	#define x8 grain->lfsr[128-94-1]	// si+94
+	#define x0 grain->nfsr[12]	// bi+12
+	#define x1 grain->lfsr[8]		// si+8
+	#define x2 grain->lfsr[13]	// si+13
+	#define x3 grain->lfsr[20]	// si+20
+	#define x4 grain->nfsr[95]	// bi+95
+	#define x5 grain->lfsr[42]	// si+42
+	#define x6 grain->lfsr[60]	// si+60
+	#define x7 grain->lfsr[79]	// si+79
+	#define x8 grain->lfsr[94]	// si+94
 
 	uint8_t h_out = (x0 & x1) ^ (x2 & x3) ^ (x4 & x5) ^ (x6 & x7) ^ (x0 & x4 & x8);
 	return h_out;
@@ -83,11 +84,11 @@ uint8_t next_h(grain_state *grain)
 
 uint8_t shift(uint8_t fsr[128], uint8_t fb)
 {
-	uint8_t out = fsr[127];
-	for (int i = 127; i > 0; i--) {
-		fsr[i] = fsr[i-1];
+	uint8_t out = fsr[0];
+	for (int i = 0; i < 127; i++) {
+		fsr[i] = fsr[i+1];
 	}
-	fsr[0] = fb;
+	fsr[127] = fb;
 
 	return out;
 }
@@ -118,10 +119,10 @@ uint8_t next_z(grain_state *grain)
 
 	uint8_t nfsr_tmp = 0;
 	for (int i = 0; i < 7; i++) {
-		nfsr_tmp ^= grain->nfsr[128-A[i]-1];
+		nfsr_tmp ^= grain->nfsr[A[i]];
 	}
 
-	uint8_t y = h_out ^ grain->lfsr[128-93-1] ^ nfsr_tmp;
+	uint8_t y = h_out ^ grain->lfsr[93] ^ nfsr_tmp;
 	
 	uint8_t lfsr_out;
 
