@@ -45,12 +45,14 @@ void init_grain(grain_state *grain, uint8_t *key, uint8_t *iv)
 
 void init_data(grain_data *data, uint8_t *msg, uint32_t msg_len)
 {
-	// always pad data with a 1
-	data->message = (uint8_t *) malloc(msg_len + 1);
+	// allocate enough space. The functions does not know when the message ends.
+	// An array with zeros yields the same result as if there was no message at all.
+	data->message = (uint8_t *) calloc(8 * STREAM_BYTES);
 	for (uint32_t i = 0; i < msg_len; i++) {
 		data->message[i] = msg[i];
 	}
 
+	// always pad data with a 1
 	data->message[msg_len] = 1;
 }
 
