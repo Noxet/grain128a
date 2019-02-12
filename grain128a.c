@@ -47,7 +47,7 @@ void init_data(grain_data *data, uint8_t *msg, uint32_t msg_len)
 {
 	// allocate enough space. The functions does not know when the message ends.
 	// An array with zeros yields the same result as if there was no message at all.
-	data->message = (uint8_t *) calloc(8 * STREAM_BYTES);
+	data->message = (uint8_t *) calloc(8 * STREAM_BYTES, 1);
 	for (uint32_t i = 0; i < msg_len; i++) {
 		data->message[i] = msg[i];
 	}
@@ -204,7 +204,6 @@ void generate_keystream(grain_state *grain, grain_data *data)
 					ks_cnt++;
 				} else {
 					ms[ms_cnt] = z_next;
-					printf("ms_cnt: %d\n", ms_cnt);
 					if (data->message[ms_cnt] == 1) {
 						accumulate(grain);
 					}
@@ -276,4 +275,8 @@ int main()
 	init_rounds = 0;
 
 	generate_keystream(&grain, &data);
+
+	free(data.message);
+
+	return 0;
 }
