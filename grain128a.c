@@ -16,10 +16,12 @@ uint8_t auth_mode = 0;
 
 void init_grain(grain_state *grain, uint8_t *key, uint8_t *iv)
 {
-	// TODO: do not hardcode these values
-	grain->lfsr[0] = 1;
-	for (int i = 1; i < 96; i++) {
-		grain->lfsr[i] = 0;
+	// expand the packed bytes and place one bit per array cell (like a flip flop in HW)
+	for (int i = 0; i < 12; i++) {
+		for (int j = 0; j < 8; j++) {
+			grain->lfsr[8 * i + j] = (iv[i] & (1 << (7-j))) >> (7-j);
+
+		}
 	}
 
 	for (int i = 96; i < 127; i++) {
@@ -29,8 +31,10 @@ void init_grain(grain_state *grain, uint8_t *key, uint8_t *iv)
 	grain->lfsr[127] = 0;
 	if (grain->lfsr[0] == 1) auth_mode = 1;
 
-	for (int i = 0; i < 128; i++) {
-		grain->nfsr[i] = 0;
+	for (int i = 0; i < 16; i++) {
+		for (int j = 0; j < 8; j++) {
+			grain->nfsr[8 * i + j] = (key[i] & (1 << (7-j))) >> (7-j);
+		}
 	}
 
 	for (int i = 0; i < 32; i++) {
@@ -198,6 +202,7 @@ void generate_keystream(grain_state *grain, grain_data *data)
 					ks_cnt++;
 				} else {
 					ms[ms_cnt] = z_next;
+					printf("ms_cnt: %d\n", ms_cnt);
 					if (data->message[ms_cnt] == 1) {
 						accumulate(grain);
 					}
@@ -239,9 +244,16 @@ int main()
 	grain_state grain;
 	grain_data data;
 
+	uint8_t key[] = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0};
+	uint8_t iv[] = {0x81, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x12, 0x34, 0x56, 0x78};
+
+	//uint8_t key[16] = { 0 };
+	//uint8_t iv[12] = { 0 };
+	//iv[0] = 0x80;
+
 	uint8_t msg[0];
 
-	init_grain(&grain, NULL, NULL);
+	init_grain(&grain, key, iv);
 	init_data(&data, msg, sizeof(msg));
 	
 	/* initialize grain and skip output */
